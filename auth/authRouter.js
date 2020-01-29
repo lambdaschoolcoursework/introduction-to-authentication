@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const Users = require('./model');
+const middleware = require('./middleware');
 
 const app = express.Router();
 
@@ -9,8 +10,6 @@ app.post('/register', (request, response) => {
     let user = request.body;
     const hash = bcrypt.hashSync(request.body.password, 10);
     user.password = hash;
-    
-    console.log(user);
 
     Users.add(user)
         .then(res => response.status(200).json({message: 'user created successfully'}))
@@ -24,12 +23,13 @@ app.post('/register', (request, response) => {
 app.post('/login', (request, response) => {
     const {username, password} = request.body;
 
-    console.log({username});
-
     Users.find({username})
         .then(res => {
-            if (bcrypt.compareSync(password, res.password)) {
-                response.status(200).json({message: 'signed in successfully'});
+            if (res && bcrypt.compareSync(password, res.password)) {
+                request.session.userId = res.id;
+                request.session.loggedIn = true;
+                
+                response.status(200).json({message: 'logged in successfully', session: request.session});
             } else {
                 response.status(500).json({message: 'invalid credentials'});
             };
@@ -40,30 +40,32 @@ app.post('/login', (request, response) => {
         });
 });
 
-// fetch all users
-app.get('/users', (request, response) => {
-    if (request.headers.authorization) {
-        bcrypt.hash(request.headers.authorization, 10 , (err, hash) => {
-            Users.find()
-                .then(res => {
-                    response.status(200).json(res);
-                    console.log(hash);
-                })
-                .catch(err => {
-                    response.status(500).json({message: 'error fetching users'});
-                    console.log(err);
-                });
+// logout
+app.get('/logout', (request, response) => {
+    if (request.session) {
+        request.session.destroy(err => {
+            if (err) {
+                response.status(500).json({message: '?'});
+            } else {
+                response.status(200).json({message: 'successfully logged out'});
+            };
         });
     } else {
-        response.status(500).json({message: 'header missing'})
+        response.status(204).json({message: 'session expired'})
     };
+    // when would each of these happen?
 });
 
-/*
-salting?
-do i need to check if res(user) exists on line 31?
-do you check for a certain token in header? or just that something is there? maybe checking id?
-bcrypt.hash on line 47?
-*/
+// fetch all users
+app.get('/users', middleware, (request, response) => {
+    Users.find()
+        .then(res => {
+            response.status(200).json(res);
+        })
+        .catch(err => {
+            response.status(500).json({message: 'error fetching users'});
+            console.log(err);
+        });
+});
 
 module.exports = app;
